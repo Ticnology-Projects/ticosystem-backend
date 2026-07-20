@@ -1,0 +1,825 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================
+// NOTAS / SUPUESTOS aplicados durante la migración desde el SQL
+// ============================================================
+// 1. Todas las PK y FK que eran `int` pasaron a `String @db.Uuid`
+//    con `@default(uuid())` en las PK (único requisito solicitado).
+// 2. `invoice.issue_date` estaba duplicado en el CREATE TABLE original;
+//    se dejó una sola vez.
+// 3. `service_order.signature_base64` estaba tipado `bigserial` en el SQL
+//    (claramente un error); se modeló como `String? @db.Text` (base64).
+// 4. `service_order.end_address` estaba tipado `timestamp`; se modeló
+//    como `String?` (dirección).
+// 5. `office_service.name` estaba tipado `int`; se modeló como `String`.
+// 6. `vendor_profile.description` estaba tipado `int`; se modeló como `String?`.
+// 7. `warranty_service.purchase_price` estaba tipado `int`; se modeló como
+//    `Decimal?` para ser consistente con `selling_price`.
+// 8. `ms365_service.email_id` estaba tipado `varchar` pero tiene FK real a
+//    `email(id)`; se modeló como UUID (FK).
+// 9. `copy_email` y `email_catalog` no tenían PK declarada en el SQL pese a
+//    tener columna `id`; se agregó `@id` a ambas.
+// 10. `varchar(%)` -> `String`, `decimal(%,%)` -> `Decimal @db.Decimal(19,4)`,
+//     `bit(%)` -> `Boolean`.
+// ============================================================
+// REVISIÓN 2 (correcciones sobre esta versión):
+// 11. `User.mail` -> `@unique` (usado para login).
+// 12. `UserSession.refreshToken` -> `@unique` (búsqueda de sesión por token).
+// 13. Se agregaron `createdAt DateTime @default(now())` y
+//     `updatedAt DateTime @updatedAt` a las 44 tablas (auditoría estándar).
+// ============================================================
+
+model ActivityServiceOrder {
+  id                String @id @default(uuid()) @db.Uuid
+  serviceOrderId    String @db.Uuid
+  serviceActivityId String @db.Uuid
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  serviceOrder    ServiceOrder    @relation(fields: [serviceOrderId], references: [id])
+  serviceActivity ServiceActivity @relation(fields: [serviceActivityId], references: [id])
+
+  @@map("activity_service_order")
+}
+
+model AntivirusService {
+  id                             String    @id @default(uuid()) @db.Uuid
+  name                           String
+  url                            String?
+  clientProfileId                String    @db.Uuid
+  purchasePrice                  Decimal?  @db.Decimal(19, 4)
+  sellingPrice                   Decimal?  @db.Decimal(19, 4)
+  period                         Int
+  expirationDate                 DateTime  @db.Date
+  userId                         String    @db.Uuid
+  observations                   String?
+  emailId                        String?   @db.Uuid
+  status                         String
+  reason                         String?
+  paymentType                    String?
+  purchaseInvoiceInvoiceId       String?   @db.Uuid
+  purchaseInvoiceVendorProfileId String?   @db.Uuid
+  saleInvoiceInvoiceId           String?   @db.Uuid
+  saleInvoiceClientProfileId     String?   @db.Uuid
+  createdAt                      DateTime @default(now())
+  updatedAt                      DateTime @updatedAt
+
+  clientProfile   ClientProfile    @relation(fields: [clientProfileId], references: [id])
+  email           Email?           @relation(fields: [emailId], references: [id])
+  user            User             @relation(fields: [userId], references: [id])
+  purchaseInvoice PurchaseInvoice? @relation(fields: [purchaseInvoiceInvoiceId, purchaseInvoiceVendorProfileId], references: [invoiceId, vendorProfileId])
+  saleInvoice     SaleInvoice?     @relation(fields: [saleInvoiceInvoiceId, saleInvoiceClientProfileId], references: [invoiceId, clientProfileId])
+
+  antivirusVendors AntivirusVendor[]
+
+  @@map("antivirus_service")
+}
+
+model AntivirusVendor {
+  id                 String @id @default(uuid()) @db.Uuid
+  vendorProfileId    String @db.Uuid
+  antivirusServiceId String @db.Uuid
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  vendorProfile    VendorProfile    @relation(fields: [vendorProfileId], references: [id])
+  antivirusService AntivirusService @relation(fields: [antivirusServiceId], references: [id])
+
+  @@map("antivirus_vendor")
+}
+
+model ClientProfile {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @db.Uuid
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  antivirusServices AntivirusService[]
+  domainServices    DomainService[]
+  ms365Services     Ms365Service[]
+  officeServices    OfficeService[]
+  serviceOrders     ServiceOrder[]
+  warrantyServices  WarrantyService[]
+  saleInvoices      SaleInvoice[]
+  @@map("client_profile")
+}
+
+model CopyEmail {
+  id        String @id @default(uuid()) @db.Uuid
+  copyEmail String
+  emailId   String @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  email Email @relation(fields: [emailId], references: [id])
+
+  @@map("copy_email")
+}
+
+model Domain {
+  id             String   @id @default(uuid()) @db.Uuid
+  name           String
+  expirationDate DateTime @db.Date
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  domainServices DomainService[]
+
+  @@map("domain")
+}
+
+model DomainService {
+  id                             String    @id @default(uuid()) @db.Uuid
+  clientProfileId                String    @db.Uuid
+  billTo                         String?
+  domainId                       String?   @db.Uuid
+  hostingId                      String?   @db.Uuid
+  purchasePrice                  Decimal?  @db.Decimal(19, 4)
+  expirationDateHosting          DateTime? @db.Date
+  period                         Int
+  sellingPrice                   Decimal?  @db.Decimal(19, 4)
+  userId                         String    @db.Uuid
+  state                          String
+  observations                   String?
+  emailId                        String?   @db.Uuid
+  phone                          Int?
+  status                         String
+  reason                         String?
+  paymentType                    String?
+  purchaseInvoiceInvoiceId       String?   @db.Uuid
+  purchaseInvoiceVendorProfileId String?   @db.Uuid
+  saleInvoiceInvoiceId           String?   @db.Uuid
+  saleInvoiceClientProfileId     String?   @db.Uuid
+  createdAt                      DateTime @default(now())
+  updatedAt                      DateTime @updatedAt
+
+  clientProfile   ClientProfile    @relation(fields: [clientProfileId], references: [id])
+  domain          Domain?          @relation(fields: [domainId], references: [id])
+  hosting         Hosting?         @relation(fields: [hostingId], references: [id])
+  email           Email?           @relation(fields: [emailId], references: [id])
+  user            User             @relation(fields: [userId], references: [id])
+  purchaseInvoice PurchaseInvoice? @relation(fields: [purchaseInvoiceInvoiceId, purchaseInvoiceVendorProfileId], references: [invoiceId, vendorProfileId])
+  saleInvoice     SaleInvoice?     @relation(fields: [saleInvoiceInvoiceId, saleInvoiceClientProfileId], references: [invoiceId, clientProfileId])
+
+  domainVendors  DomainVendor[]
+  hostingVendors HostingVendor[]
+
+  @@map("domain_service")
+}
+
+model DomainVendor {
+  id              String @id @default(uuid()) @db.Uuid
+  vendorProfileId String @db.Uuid
+  domainServiceId String @db.Uuid
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  vendorProfile VendorProfile @relation(fields: [vendorProfileId], references: [id])
+  domainService DomainService @relation(fields: [domainServiceId], references: [id])
+
+  @@map("domain_vendor")
+}
+
+model Email {
+  id        String @id @default(uuid()) @db.Uuid
+  mail      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  copyEmails        CopyEmail[]
+  antivirusServices AntivirusService[]
+  domainServices    DomainService[]
+  ms365Services     Ms365Service[]
+  officeServices    OfficeService[]
+  warrantyServices  WarrantyService[]
+
+  @@map("email")
+}
+
+model EmailCatalog {
+  id        String @id @default(uuid()) @db.Uuid
+  mail      String
+  userId    String @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("email_catalog")
+}
+
+model Hosting {
+  id          String @id @default(uuid()) @db.Uuid
+  name        String
+  description String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  domainServices DomainService[]
+
+  @@map("hosting")
+}
+
+model HostingVendor {
+  id              String @id @default(uuid()) @db.Uuid
+  vendorProfileId String @db.Uuid
+  domainServiceId String @db.Uuid
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  vendorProfile VendorProfile @relation(fields: [vendorProfileId], references: [id])
+  domainService DomainService @relation(fields: [domainServiceId], references: [id])
+
+  @@map("hosting_vendor")
+}
+
+model Invoice {
+  id            String   @id @default(uuid()) @db.Uuid
+  invoiceNumber String
+  issueDate     DateTime @db.Date
+  subtotal      Decimal  @db.Decimal(19, 4)
+  tax           Decimal  @db.Decimal(19, 4)
+  total         Decimal  @db.Decimal(19, 4)
+  type          String
+  deduction     Decimal  @db.Decimal(19, 4)
+  dueDate       DateTime @db.Date
+  currency      String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  purchaseInvoices     PurchaseInvoice[]
+  saleInvoices         SaleInvoice[]
+  invoicePayments      InvoicePayment[]
+  invoiceServiceOrders InvoiceServiceOrder[]
+
+  @@map("invoice")
+}
+
+model InvoicePayment {
+  id            String  @id @default(uuid()) @db.Uuid
+  paymentId     String  @db.Uuid
+  invoiceId     String  @db.Uuid
+  amountApplied Decimal @db.Decimal(19, 4)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  payment Payment @relation(fields: [paymentId], references: [id])
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+
+  @@map("invoice_payment")
+}
+
+model InvoiceServiceOrder {
+  id             String @id @default(uuid()) @db.Uuid
+  invoiceId      String @db.Uuid
+  serviceOrderId String @db.Uuid
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  invoice      Invoice      @relation(fields: [invoiceId], references: [id])
+  serviceOrder ServiceOrder @relation(fields: [serviceOrderId], references: [id])
+
+  @@map("invoice_service_order")
+}
+
+model Item {
+  id               String  @id @default(uuid()) @db.Uuid
+  name             String
+  brand            String
+  productCatalogId String  @db.Uuid
+  serialNumber     String
+  itemId           String? @db.Uuid
+  description      String
+  sellingPrice     Decimal @db.Decimal(19, 4)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  productCatalog Product @relation(fields: [productCatalogId], references: [id])
+  parentItem     Item?   @relation("ItemHierarchy", fields: [itemId], references: [id])
+  childItems     Item[]  @relation("ItemHierarchy")
+
+  @@map("item")
+}
+
+model Ms365Service {
+  id                             String    @id @default(uuid()) @db.Uuid
+  url                            String?
+  clientProfileId                String    @db.Uuid
+  name                           String
+  purchasePrice                  Decimal?  @db.Decimal(19, 4)
+  sellingPrice                   Decimal?  @db.Decimal(19, 4)
+  period                         Int
+  expirationDate                 DateTime  @db.Date
+  userId                         String    @db.Uuid
+  emailId                        String?   @db.Uuid
+  status                         String
+  reason                         String?
+  paymentType                    String?
+  purchaseInvoiceInvoiceId       String?   @db.Uuid
+  purchaseInvoiceVendorProfileId String?   @db.Uuid
+  saleInvoiceInvoiceId           String?   @db.Uuid
+  saleInvoiceClientProfileId     String?   @db.Uuid
+  createdAt                      DateTime @default(now())
+  updatedAt                      DateTime @updatedAt
+
+  clientProfile   ClientProfile    @relation(fields: [clientProfileId], references: [id])
+  email           Email?           @relation(fields: [emailId], references: [id])
+  user            User             @relation(fields: [userId], references: [id])
+  purchaseInvoice PurchaseInvoice? @relation(fields: [purchaseInvoiceInvoiceId, purchaseInvoiceVendorProfileId], references: [invoiceId, vendorProfileId])
+  saleInvoice     SaleInvoice?     @relation(fields: [saleInvoiceInvoiceId, saleInvoiceClientProfileId], references: [invoiceId, clientProfileId])
+
+  ms365Vendors Ms365Vendor[]
+
+  @@map("ms365_service")
+}
+
+model Ms365Vendor {
+  id              String @id @default(uuid()) @db.Uuid
+  vendorProfileId String @db.Uuid
+  ms365ServiceId  String @db.Uuid
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  vendorProfile VendorProfile @relation(fields: [vendorProfileId], references: [id])
+  ms365Service  Ms365Service  @relation(fields: [ms365ServiceId], references: [id])
+
+  @@map("ms365_vendor")
+}
+
+model OfficeService {
+  id                             String    @id @default(uuid()) @db.Uuid
+  url                            String?
+  clientProfileId                String    @db.Uuid
+  name                           String
+  purchasePrice                  Decimal?  @db.Decimal(19, 4)
+  sellingPrice                   Decimal?  @db.Decimal(19, 4)
+  period                         Int
+  expirationDate                 DateTime  @db.Date
+  emailId                        String?   @db.Uuid
+  status                         String
+  reason                         String?
+  paymentType                    String?
+  purchaseInvoiceInvoiceId       String?   @db.Uuid
+  purchaseInvoiceVendorProfileId String?   @db.Uuid
+  saleInvoiceInvoiceId           String?   @db.Uuid
+  saleInvoiceClientProfileId     String?   @db.Uuid
+  createdAt                      DateTime @default(now())
+  updatedAt                      DateTime @updatedAt
+
+  clientProfile   ClientProfile    @relation(fields: [clientProfileId], references: [id])
+  email           Email?           @relation(fields: [emailId], references: [id])
+  purchaseInvoice PurchaseInvoice? @relation(fields: [purchaseInvoiceInvoiceId, purchaseInvoiceVendorProfileId], references: [invoiceId, vendorProfileId])
+  saleInvoice     SaleInvoice?     @relation(fields: [saleInvoiceInvoiceId, saleInvoiceClientProfileId], references: [invoiceId, clientProfileId])
+
+  officeVendors OfficeVendor[]
+
+  @@map("office_service")
+}
+
+model OfficeVendor {
+  id              String @id @default(uuid()) @db.Uuid
+  vendorProfileId String @db.Uuid
+  officeServiceId String @db.Uuid
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  vendorProfile VendorProfile @relation(fields: [vendorProfileId], references: [id])
+  officeService OfficeService @relation(fields: [officeServiceId], references: [id])
+
+  @@map("office_vendor")
+}
+
+model Organization {
+  id                     String  @id @default(uuid()) @db.Uuid
+  legalName              String
+  taxId                  String?
+  countryCode            String
+  mainContact            String
+  mainEmail              String
+  mainPhone              String
+  address                String
+  addressMapsLink        String
+  notes                  String
+  website                String?
+  organizationCategoryId String  @db.Uuid
+  isActive               Boolean
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  organizationCategory OrganizationCategory @relation(fields: [organizationCategoryId], references: [id])
+
+  clientProfiles ClientProfile[]
+  vendorProfiles VendorProfile[]
+  positions      Position[]
+  users          User[]
+
+  @@map("organization")
+}
+
+model OrganizationCategory {
+  id          String @id @default(uuid()) @db.Uuid
+  name        String
+  description String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  organizations Organization[]
+
+  @@map("organization_category")
+}
+
+model Payment {
+  id            String   @id @default(uuid()) @db.Uuid
+  amount        Decimal  @db.Decimal(19, 4)
+  paymentDate   DateTime @db.Date
+  currency      String
+  paymentMethod String
+  voucherUrl    String
+  notes         String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  invoicePayments InvoicePayment[]
+
+  @@map("payment")
+}
+
+model Permission {
+  id          String @id @default(uuid()) @db.Uuid
+  name        String
+  description String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  positionPermissions PositionPermission[]
+  rolePermissions     RolePermission[]
+
+  @@map("permission")
+}
+
+model Position {
+  id             String @id @default(uuid()) @db.Uuid
+  name           String
+  description    String
+  organizationId String @db.Uuid
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  positionPermissions PositionPermission[]
+  users               User[]
+
+  @@map("position")
+}
+
+model PositionPermission {
+  id           String @id @default(uuid()) @db.Uuid
+  permissionId String @db.Uuid
+  positionId   String @db.Uuid
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  permission Permission @relation(fields: [permissionId], references: [id])
+  position   Position   @relation(fields: [positionId], references: [id])
+
+  @@map("position_permission")
+}
+
+model Product {
+  id              String @id @default(uuid()) @db.Uuid
+  name            String
+  description     String
+  productVendorId String @db.Uuid
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  productVendor ProductVendor @relation(fields: [productVendorId], references: [id])
+
+  items            Item[]
+  warrantyServices WarrantyService[]
+
+  @@map("product")
+}
+
+model ProductVendor {
+  id              String @id @default(uuid()) @db.Uuid
+  vendorProfileId String @db.Uuid
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  vendorProfile VendorProfile @relation(fields: [vendorProfileId], references: [id])
+
+  products Product[]
+
+  @@map("product_vendor")
+}
+
+model ProfitMonth {
+  id        String  @id @default(uuid()) @db.Uuid
+  profit    Decimal @db.Decimal(19, 4)
+  month     Int
+  year      Int
+  userId    String  @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("profit_month")
+}
+
+model PurchaseInvoice {
+  invoiceId       String @db.Uuid
+  vendorProfileId String @db.Uuid
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  invoice       Invoice       @relation(fields: [invoiceId], references: [id])
+  vendorProfile VendorProfile @relation(fields: [vendorProfileId], references: [id])
+
+  antivirusServices       AntivirusService[]
+  domainServices          DomainService[]
+  ms365Services           Ms365Service[]
+  officeServices          OfficeService[]
+  warrantyServices        WarrantyService[]
+  serviceInvoiceHistories ServiceInvoiceHistory[]
+
+  @@id([invoiceId, vendorProfileId])
+  @@map("purchase_invoice")
+}
+
+model Role {
+  id          String @id @default(uuid()) @db.Uuid
+  name        String
+  description String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  rolePermissions RolePermission[]
+  userRoles       UserRole[]
+
+  @@map("role")
+}
+
+model RolePermission {
+  roleId       String @db.Uuid
+  permissionId String @db.Uuid
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  role       Role       @relation(fields: [roleId], references: [id])
+  permission Permission @relation(fields: [permissionId], references: [id])
+
+  @@id([roleId, permissionId])
+  @@map("role_permission")
+}
+
+model SaleInvoice {
+  invoiceId       String @db.Uuid
+  clientProfileId String @db.Uuid
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  invoice       Invoice       @relation(fields: [invoiceId], references: [id])
+  clientProfile ClientProfile @relation(fields: [clientProfileId], references: [id])
+
+  antivirusServices       AntivirusService[]
+  domainServices          DomainService[]
+  ms365Services           Ms365Service[]
+  officeServices          OfficeService[]
+  warrantyServices        WarrantyService[]
+  serviceInvoiceHistories ServiceInvoiceHistory[]
+
+  @@id([invoiceId, clientProfileId])
+  @@map("sale_invoice")
+}
+
+model ServiceActivity {
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String
+  description String?
+  userId      String  @db.Uuid
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  activityServiceOrders ActivityServiceOrder[]
+  serviceCategories     ServiceCategory[]
+
+  @@map("service_activity")
+}
+
+model ServiceCategory {
+  id                String @id @default(uuid()) @db.Uuid
+  name              String
+  activityServiceId String @db.Uuid
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  activityService ServiceActivity @relation(fields: [activityServiceId], references: [id])
+
+  @@map("service_category")
+}
+
+model ServiceInvoiceHistory {
+  id                             String   @id @default(uuid()) @db.Uuid
+  serviceType                    String
+  serviceId                      String   @db.Uuid
+  purchaseInvoiceInvoiceId       String   @db.Uuid
+  purchaseInvoiceVendorProfileId String   @db.Uuid
+  saleInvoiceInvoiceId           String   @db.Uuid
+  saleInvoiceClientProfileId     String   @db.Uuid
+  recordedAt                     DateTime
+  createdAt                      DateTime @default(now())
+  updatedAt                      DateTime @updatedAt
+
+  purchaseInvoice PurchaseInvoice @relation(fields: [purchaseInvoiceInvoiceId, purchaseInvoiceVendorProfileId], references: [invoiceId, vendorProfileId])
+  saleInvoice     SaleInvoice     @relation(fields: [saleInvoiceInvoiceId, saleInvoiceClientProfileId], references: [invoiceId, clientProfileId])
+
+  @@map("service_invoice_history")
+}
+
+model ServiceOrder {
+  id                String    @id @default(uuid()) @db.Uuid
+  userId            String    @db.Uuid
+  clientProfileId   String    @db.Uuid
+  initialTasks      String?
+  finalObservations String?
+  scheduledDate     DateTime? @db.Date
+  startAddress      String?
+  startTime         DateTime?
+  endTime           DateTime?
+  endAddress        String?
+  signatureBase64   String?   @db.Text
+  servicePrice      Decimal   @db.Decimal(19, 4)
+  mainContact       String
+  mainPhone         String
+  mainEmail         String
+  status            String
+  reason            String?
+  paymentType       String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user          User          @relation(fields: [userId], references: [id])
+  clientProfile ClientProfile @relation(fields: [clientProfileId], references: [id])
+
+  activityServiceOrders ActivityServiceOrder[]
+  invoiceServiceOrders  InvoiceServiceOrder[]
+  serviceOrderPhotos    ServiceOrderPhoto[]
+
+  @@map("service_order")
+}
+
+model ServiceOrderPhoto {
+  id             String @id @default(uuid()) @db.Uuid
+  type           String
+  path           String
+  serviceOrderId String @db.Uuid
+  extension      String
+  url            String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  serviceOrder ServiceOrder @relation(fields: [serviceOrderId], references: [id])
+
+  @@map("service_order_photo")
+}
+
+model User {
+  id             String  @id @default(uuid()) @db.Uuid
+  firstName      String
+  middleName     String?
+  firstSurname   String
+  secondSurname  String
+  mail           String @unique
+  phone          Int
+  password       String
+  positionId     String  @db.Uuid
+  organizationId String  @db.Uuid
+  isActive       Boolean
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  position     Position     @relation(fields: [positionId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  antivirusServices AntivirusService[]
+  domainServices    DomainService[]
+  ms365Services     Ms365Service[]
+  serviceActivities ServiceActivity[]
+  serviceOrders     ServiceOrder[]
+  emailCatalogs     EmailCatalog[]
+  profitMonths      ProfitMonth[]
+  userRoles         UserRole[]
+  userSessions      UserSession[]
+
+  @@map("user")
+}
+
+model UserRole {
+  userId    String @db.Uuid
+  roleId    String @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+  role Role @relation(fields: [roleId], references: [id])
+
+  @@id([userId, roleId])
+  @@map("user_role")
+}
+
+model UserSession {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @db.Uuid
+  refreshToken String @unique
+  ipAddress    String
+  userAgent    String
+  isRevoked    Boolean  @default(false)
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("user_sessions")
+}
+
+model VendorProfile {
+  id             String  @id @default(uuid()) @db.Uuid
+  organizationId String  @db.Uuid
+  description    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  antivirusVendors AntivirusVendor[]
+  domainVendors    DomainVendor[]
+  hostingVendors   HostingVendor[]
+  ms365Vendors     Ms365Vendor[]
+  officeVendors    OfficeVendor[]
+  productVendors   ProductVendor[]
+  purchaseInvoices PurchaseInvoice[]
+
+  @@map("vendor_profile")
+}
+
+model Warranty {
+  id             String   @id @default(uuid()) @db.Uuid
+  monthsWarranty Int
+  startDate      DateTime @db.Date
+  endDate        DateTime @db.Date
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  warrantyServices WarrantyService[]
+
+  @@map("warranty")
+}
+
+model WarrantyService {
+  id                             String   @id @default(uuid()) @db.Uuid
+  clientProfileId                String   @db.Uuid
+  productId                      String   @db.Uuid
+  warrantyId                     String   @db.Uuid
+  emailId                        String   @db.Uuid
+  status                         String
+  reason                         String?
+  paymentType                    String?
+  sellingPrice                   Decimal? @db.Decimal(19, 4)
+  purchasePrice                  Decimal? @db.Decimal(19, 4)
+  saleInvoiceInvoiceId           String?  @db.Uuid
+  saleInvoiceClientProfileId     String?  @db.Uuid
+  purchaseInvoiceInvoiceId       String?  @db.Uuid
+  purchaseInvoiceVendorProfileId String?  @db.Uuid
+  createdAt                      DateTime @default(now())
+  updatedAt                      DateTime @updatedAt
+
+  clientProfile   ClientProfile    @relation(fields: [clientProfileId], references: [id])
+  product         Product          @relation(fields: [productId], references: [id])
+  warranty        Warranty         @relation(fields: [warrantyId], references: [id])
+  email           Email            @relation(fields: [emailId], references: [id])
+  saleInvoice     SaleInvoice?     @relation(fields: [saleInvoiceInvoiceId, saleInvoiceClientProfileId], references: [invoiceId, clientProfileId])
+  purchaseInvoice PurchaseInvoice? @relation(fields: [purchaseInvoiceInvoiceId, purchaseInvoiceVendorProfileId], references: [invoiceId, vendorProfileId])
+
+  @@map("warranty_service")
+}
