@@ -1,13 +1,25 @@
+import 'dotenv/config'; 
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { AllExceptionsFilter } from './common/filters/all-exception.filter';
+//import * as cookieParser from 'cookie-parser';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger'; 
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   // Habilitar prefijo global (Opcional pero recomendado para versionamiento)
   app.setGlobalPrefix('api/v1');
+
+  const config = new DocumentBuilder()
+    .setTitle('Ticosystem API')
+    .setDescription('API multitenant para gestión de facturas y servicios TI')
+    .setVersion('1.0')
+    .addBearerAuth() // 👈 Permitirá probar endpoints protegidos desde la interfaz de Swagger (Útil para simular a Flutter)
+    .build();
+  const document = SwaggerModule.createDocument(app, config);
+  SwaggerModule.setup('api/docs', app, document);
 
   // Habilitar validaciones globales para los DTOs
   app.useGlobalPipes(
@@ -22,7 +34,7 @@ async function bootstrap() {
   app.useGlobalFilters(new AllExceptionsFilter());
 
   // Middleware para parsear las cookies HttpOnly
-  app.use(cookieParser());
+  //app.use(cookieParser());
 
   // Habilitar CORS para tu frontend en Vite
   app.enableCors({
@@ -31,7 +43,8 @@ async function bootstrap() {
   });
 
   await app.listen(3000);
-  console.log(`Application is running on: http://localhost:3000/api/v1`);
+  console.log(`🚀 Application is running on: http://localhost:3000/api/v1`);
+  console.log(`📄 Swagger Docs available at: http://localhost:3000/api/docs`); // 👈 Log para la doc
 }
 bootstrap();
 
