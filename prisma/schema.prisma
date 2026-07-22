@@ -4,9 +4,7 @@
 // Get a free hosted Postgres database in seconds: `npx create-db`
 
 generator client {
-  provider     = "prisma-client"
-  output       = "../src/generated/prisma"
-  moduleFormat = "cjs"
+  provider     = "prisma-client-js"
 }
 
 datasource db {
@@ -364,6 +362,7 @@ model Ms365Vendor {
 model OfficeService {
   id                             String    @id @default(uuid()) @db.Uuid
   url                            String?
+  userId                         String    @db.Uuid
   clientProfileId                String    @db.Uuid
   name                           String
   purchasePrice                  Decimal?  @db.Decimal(19, 4)
@@ -381,6 +380,7 @@ model OfficeService {
   createdAt                      DateTime @default(now())
   updatedAt                      DateTime @updatedAt
 
+  user            User             @relation(fields: [userId], references: [id]) 
   clientProfile   ClientProfile    @relation(fields: [clientProfileId], references: [id])
   email           Email?           @relation(fields: [emailId], references: [id])
   purchaseInvoice PurchaseInvoice? @relation(fields: [purchaseInvoiceInvoiceId, purchaseInvoiceVendorProfileId], references: [invoiceId, vendorProfileId])
@@ -726,6 +726,8 @@ model User {
   ms365Services     Ms365Service[]
   serviceActivities ServiceActivity[]
   serviceOrders     ServiceOrder[]
+  warrantyServices  WarrantyService[]
+  officeServices    OfficeService[]
   emailCatalogs     EmailCatalog[]
   profitMonths      ProfitMonth[]
   userRoles         UserRole[]
@@ -800,6 +802,7 @@ model WarrantyService {
   id                             String   @id @default(uuid()) @db.Uuid
   clientProfileId                String   @db.Uuid
   productId                      String   @db.Uuid
+  userId                         String   @db.Uuid
   warrantyId                     String   @db.Uuid
   emailId                        String   @db.Uuid
   status                         String
@@ -820,6 +823,7 @@ model WarrantyService {
   email           Email            @relation(fields: [emailId], references: [id])
   saleInvoice     SaleInvoice?     @relation(fields: [saleInvoiceInvoiceId, saleInvoiceClientProfileId], references: [invoiceId, clientProfileId])
   purchaseInvoice PurchaseInvoice? @relation(fields: [purchaseInvoiceInvoiceId, purchaseInvoiceVendorProfileId], references: [invoiceId, vendorProfileId])
+  user            User             @relation(fields: [userId], references: [id])
 
   @@map("warranty_service")
 }
