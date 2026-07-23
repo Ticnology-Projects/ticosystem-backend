@@ -15,8 +15,11 @@ describe('AppController', () => {
   });
 
   describe('root', () => {
-    it('should return "Hello World!"', () => {
-      expect(appController.getHello()).toBe('Hello World!');
+    it('debería retornar el estado de la API', () => {
+      const response = appController.getHealth();
+      expect(response).toHaveProperty('status', 'online');
+      expect(response).toHaveProperty('name', 'Ticosystem API');
+      expect(response).toHaveProperty('timestamp');
     });
   });
 });

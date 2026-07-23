@@ -1,13 +1,17 @@
 import 'dotenv/config'; 
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { AllExceptionsFilter } from './common/filters/all-exception.filter';
-//import * as cookieParser from 'cookie-parser';
+import cookieParser from 'cookie-parser';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger'; 
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  app.set('trust proxy', 1);
 
   // Habilitar prefijo global (Opcional pero recomendado para versionamiento)
   app.setGlobalPrefix('api/v1');
@@ -34,7 +38,7 @@ async function bootstrap() {
   app.useGlobalFilters(new AllExceptionsFilter());
 
   // Middleware para parsear las cookies HttpOnly
-  //app.use(cookieParser());
+  app.use(cookieParser());
 
   // Habilitar CORS para tu frontend en Vite
   app.enableCors({
@@ -48,6 +52,3 @@ async function bootstrap() {
 }
 bootstrap();
 
-function cookieParser(): any {
-  throw new Error('Function not implemented.');
-}
